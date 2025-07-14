@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LangGraph Agent Chat</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f7;
+        }
+        .container {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #1d1d1f;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .chat-container {
+            height: 400px;
+            border: 1px solid #e5e5e7;
+            border-radius: 8px;
+            padding: 20px;
+            overflow-y: auto;
+            margin-bottom: 20px;
+            background-color: #fafafa;
+        }
+        .message {
+            margin-bottom: 15px;
+            padding: 10px 15px;
+            border-radius: 8px;
+            max-width: 80%;
+        }
+        .user-message {
+            background-color: #007aff;
+            color: white;
+            margin-left: auto;
+        }
+        .agent-message {
+            background-color: #e9e9eb;
+            color: #1d1d1f;
+        }
+        .tool-calls {
+            font-size: 0.8em;
+            color: #666;
+            margin-top: 5px;
+        }
+        .input-container {
+            display: flex;
+            gap: 10px;
+        }
+        input[type="text"], input[type="password"] {
+            flex: 1;
+            padding: 12px 16px;
+            border: 1px solid #d2d2d7;
+            border-radius: 8px;
+            font-size: 16px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        
+        .api-key-container {
+            margin-bottom: 20px;
+        }
+        button {
+            padding: 12px 24px;
+            background-color: #007aff;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #005bb5;
+        }
+        button:disabled {
+            background-color: #d2d2d7;
+            cursor: not-allowed;
+        }
+        .examples {
+            margin-top: 20px;
+            padding: 20px;
+            background-color: #f1f2f6;
+            border-radius: 8px;
+        }
+        .examples h3 {
+            margin-top: 0;
+            color: #1d1d1f;
+        }
+        .example-button {
+            display: inline-block;
+            margin: 5px;
+            padding: 8px 12px;
+            background-color: #e9e9eb;
+            color: #1d1d1f;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .example-button:hover {
+            background-color: #d2d2d7;
+        }
+        .status {
+            padding: 10px;
+            text-align: center;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .status.loading {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        .status.error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 LangGraph Agent Chat</h1>
+        
+        <div id="status" class="status" style="display: none;"></div>
+        
+        <div id="chat-container" class="chat-container">
+            <div class="message agent-message">
+                Hello! I'm your LangGraph agent. I can help you with weather information, Wikipedia searches, fun facts, and random color selection. 
+                <br><br>
+                <strong>🔑 API Key:</strong> You can enter your OpenAI API key above for full functionality, or leave it empty if the server has one configured.
+                <br><br>
+                What would you like to know?
+            </div>
+        </div>
+        
+        <div class="api-key-container">
+            <input type="password" id="api-key-input" placeholder="Enter your OpenAI API Key (optional if set on server)" style="margin-bottom: 10px;">
+            <small style="color: #666; display: block; margin-bottom: 15px;">
+                💡 Your API key is only sent with requests and never stored. Leave empty if the server has one configured.
+            </small>
+        </div>
+        
+        <div class="input-container">
+            <input type="text" id="message-input" placeholder="Type your message here..." onkeypress="handleKeyPress(event)">
+            <button onclick="sendMessage()" id="send-button">Send</button>
+        </div>
+        
+        <div class="examples">
+            <h3>Try these examples:</h3>
+            <button class="example-button" onclick="setMessage('What is the weather in Tokyo?')">Weather in Tokyo</button>
+            <button class="example-button" onclick="setMessage('Search Wikipedia for artificial intelligence')">AI Wikipedia</button>
+            <button class="example-button" onclick="setMessage('Tell me a fun fact about pizza')">Pizza Fun Fact</button>
+            <button class="example-button" onclick="setMessage('Pick a random color from [\"red\", \"blue\", \"green\", \"yellow\"]')">Random Color</button>
+        </div>
+    </div>
+
+    <script>
+        // Replace this with your actual Vercel deployment URL
+        const API_BASE_URL = window.location.origin;
+        
+        function showStatus(message, type) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status ${type}`;
+            status.style.display = 'block';
+            
+            if (type !== 'loading') {
+                setTimeout(() => {
+                    status.style.display = 'none';
+                }, 3000);
+            }
+        }
+        
+        function addMessage(content, isUser, toolCalls = []) {
+            const chatContainer = document.getElementById('chat-container');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${isUser ? 'user-message' : 'agent-message'}`;
+            
+            messageDiv.innerHTML = content;
+            
+            if (toolCalls && toolCalls.length > 0) {
+                const toolCallsDiv = document.createElement('div');
+                toolCallsDiv.className = 'tool-calls';
+                toolCallsDiv.textContent = `🔧 Used tools: ${toolCalls.join(', ')}`;
+                messageDiv.appendChild(toolCallsDiv);
+            }
+            
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+        
+        async function sendMessage() {
+            const input = document.getElementById('message-input');
+            const apiKeyInput = document.getElementById('api-key-input');
+            const sendButton = document.getElementById('send-button');
+            const message = input.value.trim();
+            const apiKey = apiKeyInput.value.trim();
+            
+            if (!message) return;
+            
+            // Add user message to chat
+            addMessage(message, true);
+            
+            // Clear message input and disable button
+            input.value = '';
+            sendButton.disabled = true;
+            showStatus('Thinking...', 'loading');
+            
+            try {
+                // Prepare request body
+                const requestBody = { message: message };
+                if (apiKey) {
+                    requestBody.openai_api_key = apiKey;
+                }
+                
+                const response = await fetch(`${API_BASE_URL}/chat`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                // Add agent response to chat
+                addMessage(data.response, false, data.tool_calls);
+                showStatus('', '');
+                
+            } catch (error) {
+                console.error('Error:', error);
+                let errorMessage = 'Sorry, there was an error processing your request.';
+                
+                if (error.message.includes('OpenAI API key')) {
+                    errorMessage = '🔑 Please enter your OpenAI API key above or configure one on the server.';
+                }
+                
+                addMessage(errorMessage, false);
+                showStatus('Error: ' + error.message, 'error');
+            } finally {
+                sendButton.disabled = false;
+                input.focus();
+            }
+        }
+        
+        function setMessage(message) {
+            document.getElementById('message-input').value = message;
+        }
+        
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        }
+        
+        // Focus input on page load
+        document.getElementById('message-input').focus();
+        
+        // Test API connection on page load
+        fetch(`${API_BASE_URL}/health`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'healthy') {
+                    showStatus('✅ Connected to LangGraph Agent', 'loading');
+                    setTimeout(() => document.getElementById('status').style.display = 'none', 2000);
+                }
+            })
+            .catch(error => {
+                showStatus('❌ Unable to connect to agent', 'error');
+            });
+    </script>
+</body>
+</html> 
